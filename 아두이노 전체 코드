@@ -1,0 +1,173 @@
+
+///////////////////////////////////////////////////////
+// 스마트 화분 프로젝트 
+///////////////////////////////////////////////////////
+
+//LCD 라이브러리 사용하기
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <SoftwareSerial.h>
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);	//이상하면 0x3F,16,2로 바꾸기
+
+//bluetooth 핀번호
+SoftwareSerial BtSerial(4, 3);		//RXD 3  TXD 4
+
+//DHT
+#include "DHT.h"
+#define DHTPIN 2			// 2번 핀 사용
+#define DHTTYPE DHT11		// DHT 22  (AM2302), AM2321
+DHT dht(DHTPIN, DHTTYPE);		// DHT설정 - dht (디지털2, dht11)
+
+
+
+// pin 번호 선언////////////////////////////////
+int pinMotor = A2;		//펌프모터 핀 (모터 드라이버 모듈 IN1 )
+int pinY = 7;		//yellow led
+int pinRed = 9;		//RGB_LED RED Pin
+int pinGreen = 10;		//RGB_LED GREEN Pin
+int pinBlue = 11;		//RGB_LED BLUE Pin
+int pinSw = 12;		//스위치 Pin
+int pinSoilWater = A0;	//토양수분센서 Pin
+int pinCDS = A1;		//조도센서 Pin
+
+
+int CdsValue = 0;		//조도센서 값 저장 변수
+int SoilWaterValue = 0;	//수분센서 값 저장 변수
+int SwValue = 0;		//스위치 상태 저장 변수
+float t; 			//온습도 온도 값 저장 변수
+float h;			//온습도 온도 값 저장 변수
+
+
+void setup() {
+  Serial.begin(9600);		// 시리얼 통신 시작, 통신 속도 설정
+  Serial.print("hello");
+  BtSerial.begin(9600);
+  BtSerial.print("AT");
+
+  pinMode(pinMotor, OUTPUT);	// 펌프모터 핀모드 설정
+  pinMode(pinY, OUTPUT);		//노랑 LED
+  pinMode(pinRed, OUTPUT);		// RGB_LED RED 핀모드 설정
+  pinMode(pinGreen, OUTPUT);	// RGB_LED GREEN 핀모드 설정
+  pinMode(pinBlue, OUTPUT);		// RGB_LED BLUE 핀모드 설정
+  pinMode(pinSw, INPUT_PULLUP);	// 스위치 풀업저항 사용
+
+  pinMode(pinSoilWater, INPUT);	// 토양수분센서 핀모드
+  pinMode(pinCDS, INPUT);		// 조도센서 핀모드
+  pinMode(DHTPIN, INPUT);		// 온습도 센서 핀모드
+
+  Serial.println("\nI2C Scanner");
+  Serial.println("DHTxx test!");
+  dht.begin();
+}
+
+
+
+void loop() {
+  float t = dht.readTemperature();	//온습도 온도 값 저장 변수
+  float h = dht.readHumidity();		//온습도 온도 값 저장 변수
+  delay(2000);
+
+  if (BtSerial.available()) {
+    char pump_data = BtSerial.read();
+    if (pump_data == '1')		//앱에서 ON을 누르면
+    {
+      analogWrite(A2, 175);		//모터의 회전속도 조절 (0-255까지 조절 가능)
+      delay(5000);
+      analogWrite(A2, 0);		//모터의 회전속도 조절 (0-255까지 조절 가능)
+      Serial.println("pump water on");
+    }
+    else if (pump_data == '2')		//앱에서 OFF을 누르면
+    {
+      analogWrite(A2, 0); 		//펌프모터 작동 중지
+      Serial.println("pump water off");
+    }
+
+    Serial.write(BtSerial.read());
+  }
+
+  SoilWaterValue = map(analogRead(pinSoilWater), 0, 1023, 0, 100 );  
+  //토양수분센서 값 읽기  0~1023까지의 범위를 백분율로 다시 계산
+  CdsValue = analogRead(pinCDS);
+  SwValue = digitalRead(pinSw);
+
+  //시리얼 모니터에 출력하기 /////////////////////////////////////////////
+  Serial.print("Temperature: ");        //온도
+  Serial.print(t);
+  Serial.println("°C ");
+  Serial.print("Soil Humidity: ");      //토양 습도
+  Serial.print(SoilWaterValue);
+  Serial.println("% ");
+  Serial.print("CdsValue : ");          //조도
+  Serial.println(CdsValue);
+  Serial.println();
+  delay(1000);
+
+  //블루투스 센서값 통신///////////////////////////
+  BtSerial.print(t);			//온도
+  BtSerial.print(",");
+  BtSerial.print(SoilWaterValue);	//토양습도
+  BtSerial.print(",");
+  BtSerial.print(CdsValue);		//조도
+  /////////////////////////////////////////////
+
+  //LCD/////////////////////////////////////////
+  //LCD 수분센서 출력////////////////////////
+  lcd.init();
+  lcd.backlight();
+  lcd.setCursor(0, 0);
+  lcd.print("Soil Water: ");
+  lcd.setCursor(12, 0);
+  lcd.print(SoilWaterValue);
+  lcd.setCursor(15, 0);
+  lcd.print("%");
+
+  //LCD 조도센서 출력/////////////////////////////////
+  lcd.setCursor(0, 1);
+  lcd.print("TEMP : ");
+  lcd.setCursor(7, 1);
+  lcd.print((int)t);
+  //////////////////////////////////////////////
+
+  //RGB//////////////////////////////////////////
+  // 수분이 20프로 미만이면 RGB_LED 빨간 색으로 깜빡이기 경고
+  ///////////////////////////////////////////////
+
+  if ( SoilWaterValue < 20 )
+  {
+    analogWrite(pinRed, 255);   //RGB RED 깜박이기
+    analogWrite(pinGreen, 0);
+    analogWrite(pinBlue, 0);
+    delay ( 1000 );
+    analogWrite(pinRed, 0);
+    analogWrite(pinGreen, 0);
+    analogWrite(pinBlue, 0);
+    delay ( 1000 );
+
+    analogWrite(A2, 175);         //모터의 회전속도 조절 (0-255까지 조절 가능)
+    Serial.print("1");
+  }
+
+  else if ( SoilWaterValue >= 20 )
+  {
+    analogWrite(A2, 0);           //모터의 회전속도 0
+  }
+
+  //CDS//////////////////////////////////////////////
+  // 식물 성장에 도움을 주는 스마트화분 LED등 켜기
+  //CDS에 따른 led_y,g 등 코딩하기
+  ///////////////////////////////////////////////////
+
+  if ( CdsValue < 200 )
+  {
+    digitalWrite(pinY, LOW);   //노랑 led 켜기
+    delay ( 1000 );
+  }
+
+  else if (CdsValue >= 200 )
+  {
+    digitalWrite(pinY, HIGH);  //노랑 led 켜기
+    delay ( 1000 );
+  }
+
+}
